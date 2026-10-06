@@ -1,0 +1,15 @@
+{
+  "python": "3.12.14",
+  "platform": "macOS-26.5.2-arm64-arm-64bit",
+  "packages": {
+    "torch": "2.8.0",
+    "numpy": "2.5.3",
+    "pyvrp": "0.12.2",
+    "vrplib": "2.0.2",
+    "pennylane": "0.43.1",
+    "scipy": "1.18.1",
+    "PyYAML": "6.0.3"
+  },
+  "cuda": null,
+  "gpu": null
+}

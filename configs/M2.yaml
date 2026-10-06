@@ -1,0 +1,7 @@
+name: M2
+description: Gated quantum latent bottleneck without MVE
+model:
+  backend: quantum
+  mve_latent: false
+training:
+  advantage: none

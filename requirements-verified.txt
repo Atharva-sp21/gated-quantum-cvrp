@@ -1,0 +1,16 @@
+# Direct dependencies verified on Python 3.12.14. Install a CUDA torch wheel first.
+# Use pyproject.toml extras for Python 3.10/3.11 compatibility resolution.
+torch==2.8.0
+numpy==2.5.3
+PyYAML==6.0.3
+scipy==1.18.1
+pandas==2.3.3
+matplotlib==3.11.2
+tensorboard==2.21.0
+pytest==8.4.2
+pennylane==0.43.1
+pennylane-lightning==0.43.0
+autoray==0.8.0
+gast==0.7.0
+pyvrp==0.12.2
+vrplib==2.0.2

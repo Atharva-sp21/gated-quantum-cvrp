@@ -1,0 +1,66 @@
+{
+  "total_instances": 60000,
+  "references_precomputed": false,
+  "datasets": [
+    {
+      "file": "test_100.npz",
+      "count": 10000,
+      "customers": 100,
+      "capacity": 50,
+      "seed": 22346,
+      "split": "test",
+      "fingerprint": "05578da2388a3ed08db43f1fab9c9c78a8e122a2501ab8e6b7b36ab7bdcc1951",
+      "file_sha256": "abcbb4fd0f9d7fc08f0aa6ab1912385ab03768841519fb77aece64c2abbd67d7"
+    },
+    {
+      "file": "test_20.npz",
+      "count": 10000,
+      "customers": 20,
+      "capacity": 30,
+      "seed": 14346,
+      "split": "test",
+      "fingerprint": "e6f6b24439388f759904018756e1068ab4ef12dc77f3ffa4e92958bb7cf33531",
+      "file_sha256": "9c3c9c3e591fad662ed843a54ce338eecb2f8735c870924760d3056773e45d8e"
+    },
+    {
+      "file": "test_50.npz",
+      "count": 10000,
+      "customers": 50,
+      "capacity": 40,
+      "seed": 17346,
+      "split": "test",
+      "fingerprint": "c01b3053e7072cbb48b7e5e6985e36b1a6be9dcef3d52caa3f115ca6b875e752",
+      "file_sha256": "8a157c76ddd265a52955d80094bf2fd939a193c1dc521b130f20b4cd53ea2224"
+    },
+    {
+      "file": "validation_100.npz",
+      "count": 10000,
+      "customers": 100,
+      "capacity": 50,
+      "seed": 22345,
+      "split": "validation",
+      "fingerprint": "22b86632536e143857ad2a2e2925da20670479a0899cb6e0c933a6b5f8be8329",
+      "file_sha256": "958687aadb09f7dacde0edb1084abe7f1aa76036a364b65eb17707341a042dd2"
+    },
+    {
+      "file": "validation_20.npz",
+      "count": 10000,
+      "customers": 20,
+      "capacity": 30,
+      "seed": 14345,
+      "split": "validation",
+      "fingerprint": "ff98ae63e29cfb5ecf726f517fb1943bc8ddf47c0ac060d4f9f549369e565620",
+      "file_sha256": "c306941c74b6838c0e433d4842a9bf138501846d2ece53de7a72718ae123d929"
+    },
+    {
+      "file": "validation_50.npz",
+      "count": 10000,
+      "customers": 50,
+      "capacity": 40,
+      "seed": 17345,
+      "split": "validation",
+      "fingerprint": "86308bf9a30c57113c6ad6851ead9f3b475ee2d324843a6a580f8a216a0de01c",
+      "file_sha256": "8b5af6e73889d1c789834f9ee9eb76999529d924f88cc5978cb98d13d2007d72"
+    }
+  ]
+}

@@ -1,0 +1,211 @@
+ROLE
+You are a senior ML research engineer. Build a complete, reproducible PyTorch research
+codebase for: "Gated Latent-Quantum Transformer with Mean-Variance Estimation for
+Multi-Start Deep-RL CVRP". Priorities, in order: correctness, tests, ablation switches,
+reproducibility, speed. Never hard-code or fabricate results. If the quantum block does
+not help, the code must report that honestly.
+
+RESEARCH GOAL
+Strong classical neural CVRP solver (POMO-style) + ONE gated quantum latent block + MVE
+(mean-variance estimation) used in two places. The paper must be able to attribute any
+gain to specific components via ablations.
+
+STACK
+Python 3.10+, PyTorch 2.x (GPU, AMP for classical parts only; quantum simulator in
+complex64), numpy, hydra or argparse+YAML, tensorboard/wandb, pytest, scipy (stats),
+vrplib, pyvrp (reference solver), pennylane (ONLY for unit-testing the simulator),
+matplotlib/pandas. No torch_geometric.
+
+------------------------------------------------------------
+1. DATA
+------------------------------------------------------------
+- Generator: depot + m customers uniform in [0,1]^2; demand ~ U{1..9};
+  (m, C) in {(20,30),(50,40),(100,50)}; normalise demand by C.
+- Training instances generated on the fly per batch. Fixed-seed validation (10k) and test
+  (10k; 1k for m=100 if compute-bound, document it) sets saved to disk.
+- Node features: [x, y, demand/C]; depot handled by its own embedding (POMO-style).
+  Edge info: euclidean distance matrix (full), optional kNN mask (k=min(20,m)) via flag.
+- Reference costs: script computing reference solutions with PyVRP (HGS) for val/test sets,
+  cached to disk, with the time limit stored in metadata. All gaps are measured against
+  this cache. Also support loading published reference costs if the user supplies them.
+- CVRPLIB loader (vrplib): Augerat A/B/P and Uchoa X instances, converted to the same
+  format, coordinates min-max scaled with the scale factor kept so costs can be un-scaled.
+  Rounding convention must be handled explicitly (CVRPLIB uses rounded integer distances
+  for many sets); report un-rounded and rounded costs and state which is compared.
+
+------------------------------------------------------------
+2. ENVIRONMENT (batched, vectorised, supports POMO multi-start)
+------------------------------------------------------------
+- Shape convention: (B instances, P parallel rollouts/starts, ...).
+- State: static coords/demands; dynamic remaining load, current node, visited mask.
+- Masking: visited customers; customers with demand > remaining load; depot masked when
+  at depot (no depot-to-depot) unless all customers are served. Episode ends when all
+  customers are served; finishing rollouts are padded safely.
+- Cost = total euclidean length including return to depot. Reward = -cost.
+- Multi-start: P = m rollouts, rollout p starts by visiting customer p first.
+- 8-fold symmetry augmentation of coordinates (x,y)->(x,1-y),(1-x,y),(y,x), etc.
+  Demands unchanged. Applicable at train (optional flag) and inference.
+- Tests: no capacity violation; every customer exactly once; cost equals brute-force
+  recomputation; augmentation preserves optimal cost (check on tiny instances vs
+  brute force / PyVRP).
+
+------------------------------------------------------------
+3. MODEL (every module switchable by config)
+------------------------------------------------------------
+a) Input embedding: Linear for customers, separate Linear for depot, d_model=128.
+b) Encoder: 6 Transformer layers (8 heads, FFN 512, instance/batch norm as in POMO),
+   attention logits += learned bias from pairwise distance
+   (bias = MLP(distance) per head, or a learned scalar times -distance; config flag).
+   The encoder runs ONCE per instance (not per start), so the quantum block cost is
+   B*N circuits per forward pass.
+c) Latent Bottleneck / Quantum Latent Block, inserted after encoder layer `q_layer`
+   (default 3), parallel to the main path:
+   - LayerNorm -> Linear(d_model -> d_lat), with d_lat = n_qubits (default 6).
+   - MVE latent head: Linear -> (mu, logvar), logvar clamped to [-6, 2].
+     Train: z = mu + exp(0.5*logvar)*eps. Eval-greedy: z = mu.
+     Eval-sampling: configurable. Flag mve_latent on/off.
+   - Angle map: theta = pi * tanh(z).
+   - VQC (own batched statevector simulator, state tensor (B*N, 2^n), complex64):
+     * data re-uploading: RY(theta_i) on each qubit, repeated at each of L layers
+       (default L=2);
+     * trainable Rot(phi, theta, omega) per qubit per layer;
+     * ring CNOT entanglement per layer;
+     * outputs <Z_i> for all qubits, plus optional <Z_i Z_{i+1}> (flag);
+     * gates applied via reshape + einsum on the statevector (never build 2^n x 2^n
+       matrices); autograd for gradients (no parameter-shift needed);
+     * init trainable angles N(0, 0.1).
+   - Backends (switch): 'quantum', 'classical_bottleneck' (same d_lat in/out dims,
+     small MLP with a comparable parameter count, tanh activations),
+     'frozen_random_quantum', 'none' (block removed).
+   - Latent decoder: Linear(n_out -> d_model).
+   - Gated residual: x' = x + alpha * dec(q), alpha a learnable scalar init 0.1.
+     Flag to fix alpha at 0 (ablation). Log alpha.
+   - Optional noise models for robustness tests (inference only):
+     finite-shot sampling (binomial/Gaussian approximation of expectation values) and
+     depolarizing channel via density-matrix path (only n_qubits <= 8).
+   - Remaining encoder layers run on x'.
+   - Optional auxiliary reconstruction head (flag recon_loss, default OFF):
+     MLP(d_lat -> d_model) on z (sampled in train, mu in eval), target = detached
+     LayerNorm(x). Weight lambda_rec (default 0.01).
+   - Optional variant `quantum_edge_scoring` (off by default): for the k nearest
+     neighbours only (N*k pairs), encode [z_i, z_j, d_ij] into a small circuit and use the
+     expectation output as an additive attention-logit bias in later layers. Implement
+     only after everything else is tested.
+d) Global embedding: concat(mean(H), max(H)) over customer nodes.
+e) Decoder (POMO-style): multi-head attention context from
+   [global embedding, last-node embedding, remaining load]; single-head logits clipped
+   with C*tanh (C=10); masking with -inf; softmax. Greedy, sampling with temperature.
+f) MVE difficulty head: small MLP on global embedding -> (mu_c, logvar_c) predicting the
+   mean cost across starts for that instance (heteroscedastic instance difficulty).
+   Gradients into the encoder are blocked by default (detach flag, so the head cannot
+   distort the representation); config flag to allow them.
+
+------------------------------------------------------------
+4. TRAINING
+------------------------------------------------------------
+Algorithm switch: `pomo_reinforce` (default) and `ppo` (ablation).
+
+POMO REINFORCE:
+- Per instance, P rollouts; reward R = -cost.
+- Shared baseline b = mean of R over the P rollouts of the same instance.
+- Advantage A = R - b. Advantage-normalisation modes (config, all ablated):
+  1. none,
+  2. batch std,
+  3. within-instance std across rollouts,
+  4. MVE: A / (sigma_c + eps), clamped to a sane range, where sigma_c = exp(0.5*logvar_c),
+     detached. NOTE: sigma_c is uncertainty of the instance mean cost, while A is
+     within-instance spread; these differ, so mode 4 must be judged empirically
+     against modes 2 and 3 and reported honestly if it does not help.
+- Loss_policy = -mean(A_normalised * logprob_sum).
+- MVE difficulty head loss: Gaussian NLL on the instance mean cost; first few epochs use
+  MSE warm-up, then NLL.
+- Latent KL: beta * KL(q(z|x) || N(0, I)) with free-bits per dimension; beta annealed
+  linearly 0 -> beta_max (default 1e-3) over the first 20% of training.
+- Reconstruction (only if recon_loss on): + lambda_rec * MSE(recon, target), logged
+  as a separate term.
+- Total: policy + lambda_c * difficulty_loss + beta * KL (+ lambda_rec * recon).
+
+PPO ablation (paper-style): actor-critic with a critic reading the shared encoder through
+a 1D-conv head; critic MVE head (mu_v, logvar_v) with MSE warm-up then Gaussian NLL
+(flag mve_critic); clip 0.2, K=3 update epochs, entropy 0.01, gradient clip 1.0.
+
+Common: Adam lr 1e-4 (configurable decay), batch size configurable (default 64 for m=100,
+128 for m=50, 256 for m=20), epochs/steps configurable (default 100 epochs, state clearly
+that POMO-quality results typically need far longer; provide `--epochs` and a
+time-budget mode). Seed everything. Checkpoint best-by-validation. Support `--seed`.
+
+Logging each epoch: mean cost, gap on validation, every loss term, gradient norm of
+quantum parameters (separately from classical), epoch time, parameter counts split
+classical vs quantum vs total, and LATENT DIAGNOSTICS: KL per latent dimension, number of
+active dimensions (KL > 0.01), mean latent sigma, alpha, fraction of node-embedding norm
+contributed by alpha*dec(q), and reconstruction error when recon is on.
+
+Collapse report: after training, write a short report flagging alpha < 0.02, active
+dimensions <= 2, or mean latent sigma > 0.9 as possible bypass or collapse.
+
+------------------------------------------------------------
+5. EVALUATION
+------------------------------------------------------------
+- Decoding modes: greedy multi-start, greedy multi-start with x8 augmentation, sampling
+  (S samples, S reported), each reporting mean tour length and gap vs the cached
+  reference on fixed test sets for m = 20/50/100.
+- Generalisation: train on one size (e.g. m=100), test on other sizes and on CVRPLIB
+  A/B/P/X without retraining; report un-scaled costs and gaps vs best-known solutions.
+- Uncertainty analysis: Spearman correlation between predicted sigma_c (and latent sigma)
+  and the realised per-instance gap; calibration plot; performance on a shifted
+  distribution (clustered customers, different demand range) with and without MVE.
+- Trainability analysis: quantum gradient norm vs depth L in {1,2,3,4} and qubits in
+  {4,6,8,10}, reported as a table/plot (barren-plateau check), at init and during
+  training.
+- Robustness: evaluate trained quantum models under finite shots {128, 1024, inf} and
+  depolarizing p in {0, 0.001, 0.01}; plot degradation.
+- Optional script `scripts/ibm_hardware_check.py`: run the trained VQC (nodes of a few
+  tiny instances) on an IBM Quantum backend or a noisy fake backend via qiskit, compare
+  expectation values to the simulator. Keep it optional and isolated.
+- Statistics: >= 5 seeds, mean +- std; paired Wilcoxon signed-rank on per-instance
+  lengths between variants (same test instances), with effect sizes; Holm correction
+  across comparisons.
+- Efficiency: parameter breakdown, training time/epoch, inference time per instance,
+  simulator memory.
+- Auto-generate CSV + LaTeX tables and plots (training curves, gap vs size, sigma vs gap,
+  gradient norm vs depth, noise robustness, latent diagnostics over training).
+
+------------------------------------------------------------
+6. EXPERIMENT MATRIX (config presets)
+------------------------------------------------------------
+Main variants:
+- M0: classical POMO-style backbone, no latent block (`backend=none`).
+- M1: classical bottleneck (same compress/expand, `classical_bottleneck`).
+- M2: quantum latent block, no MVE.
+- M3 (proposed): quantum latent block + MVE latent + MVE advantage normalisation.
+Ablations:
+- frozen random circuit; MVE latent only; MVE advantage-norm only; each advantage
+  normalisation mode; gate on/off (alpha fixed at 0 vs learnable); with/without <ZZ>
+  outputs; n_qubits in {4,6,8}; L in {1,2,3}; q_layer in {1,3,5};
+  parameter-matched classical backbone; POMO-REINFORCE vs PPO;
+  with/without x8 augmentation at inference; kNN vs full distance bias;
+  lambda_rec in {0, 0.01, 0.1} for both quantum and classical_bottleneck.
+Reference reproduction (optional, m=20 only): the base paper's GAT and Q-GAT with PPO,
+to compare in the same evaluation pipeline.
+
+------------------------------------------------------------
+7. DELIVERABLES
+------------------------------------------------------------
+- Repo layout: data/, envs/, models/, quantum/, train/, eval/, configs/, tests/, scripts/.
+- README with exact commands to reproduce every table and figure.
+- pytest suite: environment feasibility; simulator vs PennyLane default.qubit
+  (outputs and gradients to 1e-5, for n in {2,4,6}); gradient flow to every parameter
+  group; parameter counter; shape tests; augmentation invariance; reproducibility
+  (same seed -> same loss for 3 steps); gate alpha=0 makes the block a no-op;
+  with recon on, reconstruction error decreases over 50 steps on a fixed batch.
+- `ASSUMPTIONS.md` listing every assumption and any deviation from the spec.
+- Naming: call the component "latent bottleneck" when recon is off, and
+  "variational latent autoencoder" only when recon is on.
+- BUILD ORDER (do not skip or reorder): (1) env + tests, (2) quantum simulator + tests,
+  (3) classical POMO backbone M0 end-to-end on m=20 with a sanity check that it learns
+  (cost decreases, gap shrinks), (4) latent block with classical bottleneck, (5) quantum
+  backend, (6) MVE latent, (7) MVE advantage normalisation, (8) evaluation,
+  uncertainty and robustness scripts, (9) multi-seed runner and table generation,
+  (10) optional variants (reconstruction head, quantum_edge_scoring). After each step
+  run the tests and report status before moving on.
+- Never claim a result you did not compute. Report negative results as they are.

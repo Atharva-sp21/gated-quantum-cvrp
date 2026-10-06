@@ -1,0 +1,65 @@
+name: recon_quantum_0.01
+seed: 0
+device: cuda
+customers: 100
+capacity: null
+model:
+  d_model: 128
+  heads: 8
+  ffn: 512
+  layers: 6
+  norm: instance
+  distance_bias: mlp
+  knn: false
+  backend: quantum
+  q_layer: 3
+  n_qubits: 6
+  depth: 2
+  zz: false
+  mve_latent: true
+  eval_latent_sampling: false
+  alpha_init: 0.1
+  alpha_zero: false
+  recon_loss: true
+  lambda_rec: 0.01
+  difficulty_detach: true
+  difficulty_logvar_min: -10.0
+  difficulty_logvar_max: 10.0
+  quantum_edge_scoring: false
+  quantum_chunk_size: 2048
+  classical_width: null
+training:
+  algorithm: pomo_reinforce
+  advantage: mve
+  advantage_clip: 10.0
+  eps: 1.0e-06
+  epochs: 100
+  steps_per_epoch: 100
+  batch_size: null
+  lr: 0.0001
+  lr_decay: 1.0
+  grad_clip: 1.0
+  amp: true
+  augmentation: false
+  beta_max: 0.001
+  free_bits: 0.01
+  lambda_c: 1.0
+  difficulty_warmup: 5
+  ppo_epochs: 3
+  ppo_clip: 0.2
+  entropy: 0.01
+  mve_critic: true
+  critic_warmup: 5
+  value_weight: 0.5
+  time_budget_seconds: null
+  deterministic: true
+  tensorboard: true
+  wandb: false
+  trainability_every: 0
+validation:
+  dataset: null
+  reference: null
+  batch_size: 64
+  augmentation: false
+output: runs
+description: 'Variational latent autoencoder ablation: recon_quantum_0.01'

@@ -1,0 +1,7 @@
+name: M3
+description: Quantum latent bottleneck with latent MVE and MVE advantage normalization
+model:
+  backend: quantum
+  mve_latent: true
+training:
+  advantage: mve

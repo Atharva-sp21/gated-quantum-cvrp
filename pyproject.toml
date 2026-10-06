@@ -1,0 +1,24 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "gated-quantum-cvrp"
+version = "0.1.0"
+description = "Reproducible gated latent quantum POMO CVRP research pipeline"
+requires-python = ">=3.10"
+dependencies = ["torch>=2.3,<3", "numpy>=1.24,<3", "PyYAML>=6,<7", "scipy>=1.10,<2", "pandas>=2,<3", "matplotlib>=3.7,<4", "tensorboard>=2.14,<3"]
+
+[project.optional-dependencies]
+reference = ["pyvrp==0.12.2", "vrplib==2.0.2"]
+test = ["pytest>=8,<9", "pennylane==0.43.1; python_version >= '3.11'", "pennylane-lightning==0.43.0; python_version >= '3.11'", "pennylane==0.40.0; python_version < '3.11'", "autoray==0.6.11; python_version < '3.11'", "gast>=0.6,<1"]
+hardware = ["qiskit>=2,<3", "qiskit-aer>=0.17,<1", "qiskit-ibm-runtime>=0.40,<1"]
+wandb = ["wandb>=0.18,<1"]
+
+[tool.setuptools]
+packages = ["data", "envs", "models", "quantum", "train", "eval", "scripts"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-ra"
+markers = ["training: performs optimizer updates; opt in explicitly", "optional: external optional dependency"]

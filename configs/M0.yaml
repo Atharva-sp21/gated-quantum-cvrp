@@ -1,0 +1,6 @@
+name: M0
+description: Classical POMO backbone
+model:
+  backend: none
+training:
+  advantage: none

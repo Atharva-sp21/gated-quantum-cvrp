@@ -1,0 +1,6 @@
+name: M1
+description: Gated classical latent bottleneck
+model:
+  backend: classical_bottleneck
+training:
+  advantage: none
